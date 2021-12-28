@@ -41,7 +41,7 @@ terminated = False
 
 def signal_handler(signal, frame):
     global terminated
-    logger.debug("Recieved SIGINT. Terminating client.")
+    logger.debug("Received SIGINT. Terminating client.")
     terminated = True
 
 
