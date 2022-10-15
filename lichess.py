@@ -1,9 +1,11 @@
+import json
 import requests
 from urllib.parse import urljoin
 from requests.exceptions import ConnectionError, HTTPError, ReadTimeout
-from urllib3.exceptions import ProtocolError
 from http.client import RemoteDisconnected
 import backoff
+import logging
+import time
 
 ENDPOINTS = {
     "profile": "/api/account",
@@ -17,46 +19,72 @@ ENDPOINTS = {
     "accept": "/api/challenge/{}/accept",
     "decline": "/api/challenge/{}/decline",
     "upgrade": "/api/bot/account/upgrade",
-    "resign": "/api/bot/game/{}/resign"
+    "resign": "/api/bot/game/{}/resign",
+    "export": "/game/export/{}",
+    "online_bots": "/api/bot/online",
+    "challenge": "/api/challenge/{}",
+    "cancel": "/api/challenge/{}/cancel",
+    "status": "/api/users/status",
+    "public_data": "/api/user/{}"
 }
+
+
+logger = logging.getLogger(__name__)
+
+
+def rate_limit_check(response):
+    if response.status_code == 429:
+        logger.warning("Rate limited. Waiting 1 minute until next request.")
+        time.sleep(60)
+        return True
+    return False
 
 
 # docs: https://lichess.org/api
 class Lichess:
-    def __init__(self, token, url, version):
+    def __init__(self, token, url, version, logging_level):
         self.version = version
         self.header = {
-            "Authorization": "Bearer {}".format(token)
+            "Authorization": f"Bearer {token}"
         }
         self.baseUrl = url
         self.session = requests.Session()
         self.session.headers.update(self.header)
         self.set_user_agent("?")
+        self.logging_level = logging_level
 
     def is_final(exception):
         return isinstance(exception, HTTPError) and exception.response.status_code < 500
 
     @backoff.on_exception(backoff.constant,
-                          (RemoteDisconnected, ConnectionError, ProtocolError, HTTPError, ReadTimeout),
+                          (RemoteDisconnected, ConnectionError, HTTPError, ReadTimeout),
                           max_time=60,
                           interval=0.1,
-                          giveup=is_final)
-    def api_get(self, path, raise_for_status=True):
+                          giveup=is_final,
+                          backoff_log_level=logging.DEBUG,
+                          giveup_log_level=logging.DEBUG)
+    def api_get(self, path, params=None, get_raw_text=False):
+        logging.getLogger("backoff").setLevel(self.logging_level)
         url = urljoin(self.baseUrl, path)
-        response = self.session.get(url, timeout=2)
-        if raise_for_status:
-            response.raise_for_status()
-        return response.json()
+        response = self.session.get(url, params=params, timeout=2)
+        rate_limit_check(response)
+        response.raise_for_status()
+        response.encoding = "utf-8"
+        return response.text if get_raw_text else response.json()
 
     @backoff.on_exception(backoff.constant,
-                          (RemoteDisconnected, ConnectionError, ProtocolError, HTTPError, ReadTimeout),
+                          (RemoteDisconnected, ConnectionError, HTTPError, ReadTimeout),
                           max_time=60,
                           interval=0.1,
-                          giveup=is_final)
-    def api_post(self, path, data=None, headers=None, params=None):
+                          giveup=is_final,
+                          backoff_log_level=logging.DEBUG,
+                          giveup_log_level=logging.DEBUG)
+    def api_post(self, path, data=None, headers=None, params=None, payload=None, raise_for_status=True):
+        logging.getLogger("backoff").setLevel(self.logging_level)
         url = urljoin(self.baseUrl, path)
-        response = self.session.post(url, data=data, headers=headers, params=params, timeout=2)
-        response.raise_for_status()
+        response = self.session.post(url, data=data, headers=headers, params=params, json=payload, timeout=2)
+        if rate_limit_check(response) or raise_for_status:
+            response.raise_for_status()
         return response.json()
 
     def get_game(self, game_id):
@@ -67,10 +95,10 @@ class Lichess:
 
     def make_move(self, game_id, move):
         return self.api_post(ENDPOINTS["move"].format(game_id, move.move),
-                             params={'offeringDraw': str(move.draw_offered).lower()})
+                             params={"offeringDraw": str(move.draw_offered).lower()})
 
     def chat(self, game_id, room, text):
-        payload = {'room': room, 'text': text}
+        payload = {"room": room, "text": text}
         return self.api_post(ENDPOINTS["chat"].format(game_id), data=payload)
 
     def abort(self, game_id):
@@ -88,7 +116,11 @@ class Lichess:
         return self.api_post(ENDPOINTS["accept"].format(challenge_id))
 
     def decline_challenge(self, challenge_id, reason="generic"):
-        return self.api_post(ENDPOINTS["decline"].format(challenge_id), data=f"reason={reason}", headers={"Content-Type": "application/x-www-form-urlencoded"})
+        return self.api_post(ENDPOINTS["decline"].format(challenge_id),
+                             data=f"reason={reason}",
+                             headers={"Content-Type":
+                                      "application/x-www-form-urlencoded"},
+                             raise_for_status=False)
 
     def get_profile(self):
         profile = self.api_get(ENDPOINTS["profile"])
@@ -103,5 +135,40 @@ class Lichess:
         self.api_post(ENDPOINTS["resign"].format(game_id))
 
     def set_user_agent(self, username):
-        self.header.update({"User-Agent": "lichess-bot/{} user:{}".format(self.version, username)})
+        self.header.update({"User-Agent": f"lichess-bot/{self.version} user:{username}"})
+        self.session.headers.update(self.header)
+
+    def get_game_pgn(self, game_id):
+        return self.api_get(ENDPOINTS["export"].format(game_id), get_raw_text=True)
+
+    def get_online_bots(self):
+        try:
+            online_bots = self.api_get(ENDPOINTS["online_bots"], get_raw_text=True)
+            online_bots = list(filter(bool, online_bots.split("\n")))
+            return list(map(json.loads, online_bots))
+        except Exception:
+            return []
+
+    def challenge(self, username, params):
+        return self.api_post(ENDPOINTS["challenge"].format(username),
+                             payload=params,
+                             raise_for_status=False)
+
+    def cancel(self, challenge_id):
+        return self.api_post(ENDPOINTS["cancel"].format(challenge_id),
+                             raise_for_status=False)
+
+    def online_book_get(self, path, params=None):
+        return self.session.get(path, timeout=2, params=params).json()
+
+    def is_online(self, user_id):
+        user = self.api_get(ENDPOINTS["status"], params={"ids": user_id})
+        return user and user[0].get("online")
+
+    def get_public_data(self, user_name):
+        return self.api_get(ENDPOINTS["public_data"].format(user_name))
+
+    def reset_connection(self):
+        self.session.close()
+        self.session = requests.Session()
         self.session.headers.update(self.header)
