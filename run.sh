@@ -2,4 +2,4 @@
 
 source ./venv/bin/activate
 
-exec ./lichess-bot.py -v
+exec python3 ./lichess-bot.py -v
