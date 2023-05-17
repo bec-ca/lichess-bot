@@ -5,6 +5,7 @@ engine:                      # Engine settings.
   dir: "./engines/"          # Directory containing the engine. This can be an absolute path or one relative to lichess-bot/.
   name: "engine_name"        # Binary name of the engine to use.
   working_dir: ""            # Directory where the chess engine will read and write files. If blank or missing, the current directory is used.
+                             # NOTE: If working_dir is set, the engine will look for files and directories relative to this directory, not where lichess-bot was launched. Absolute paths are unaffected.
   protocol: "uci"            # "uci", "xboard" or "homemade"
   ponder: true               # Think on opponent's time.
 
@@ -42,7 +43,6 @@ engine:                      # Engine settings.
       min_time: 20
       move_quality: "good"   # One of "all", "good", "best".
       min_depth: 20          # Only for move_quality: "best".
-      contribute: true
     lichess_cloud_analysis:
       enabled: false
       min_time: 20
@@ -181,7 +181,7 @@ matchmaking:
   opponent_rating_difference: 100 # The maximum difference in rating between the bot's rating and opponent's rating.
   opponent_allow_tos_violation: true # Set to 'false' to prevent challenging bots that violated Lichess Terms of Service.
   challenge_mode: "random"    # Set it to the mode in which challenges are sent. Possible options are 'casual', 'rated' and 'random'.
-  delay_after_decline: none  # If a bot declines a challenge, delay issuing another challenge to that bot. Possible options are 'none', 'coarse', and 'fine'.
+  challenge_filter: none  # If a bot declines a challenge, do not issue a similar challenge to that bot. Possible options are 'none', 'coarse', and 'fine'.
 # block_list:                 # The list of bots that will not be challenged
 #   - user1
 #   - user2

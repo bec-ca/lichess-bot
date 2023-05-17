@@ -1,43 +1,89 @@
+"""Code related to the config that lichess-bot uses."""
 import yaml
 import os
 import os.path
 import logging
 import math
-from matchmaking import DelayType
+from abc import ABCMeta
+from enum import Enum
+from typing import Any
+CONFIG_DICT_TYPE = dict[str, Any]
 
 logger = logging.getLogger(__name__)
 
 
+class FilterType(str, Enum):
+    """What to do if the opponent declines our challenge."""
+
+    NONE = "none"
+    """Will still challenge the opponent."""
+    COARSE = "coarse"
+    """Won't challenge the opponent again."""
+    FINE = "fine"
+    """
+    Won't challenge the opponent to a game of the same mode, speed, and variant
+    based on the reason for the opponent declining the challenge.
+    """
+
+
 class Configuration:
-    def __init__(self, parameters):
+    """The config or a sub-config that the bot uses."""
+
+    def __init__(self, parameters: CONFIG_DICT_TYPE) -> None:
+        """:param parameters: A `dict` containing the config for the bot."""
         self.config = parameters
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
+        """
+        Enable the use of `config.key1.key2`.
+
+        :param name: The key to get its value.
+        :return: The value of the key.
+        """
         return self.lookup(name)
 
-    def lookup(self, name):
+    def lookup(self, name: str) -> Any:
+        """
+        Get the value of a key.
+
+        :param name: The key to get its value.
+        :return: `Configuration` if the value is a `dict` else returns the value.
+        """
         data = self.config.get(name)
         return Configuration(data) if isinstance(data, dict) else data
 
-    def items(self):
+    def items(self) -> Any:
+        """:return: All the key-value pairs in this config."""
         return self.config.items()
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
+        """Whether `self.config` is empty."""
         return bool(self.config)
 
-    def __getstate__(self):
+    def __getstate__(self) -> CONFIG_DICT_TYPE:
+        """Get `self.config`."""
         return self.config
 
-    def __setstate__(self, d):
+    def __setstate__(self, d: CONFIG_DICT_TYPE) -> None:
+        """Set `self.config`."""
         self.config = d
 
 
-def config_assert(assertion, error_message):
+def config_assert(assertion: bool, error_message: str) -> None:
+    """Raise an exception if an assertion is false."""
     if not assertion:
         raise Exception(error_message)
 
 
-def check_config_section(config, data_name, data_type, subsection=""):
+def check_config_section(config: CONFIG_DICT_TYPE, data_name: str, data_type: ABCMeta, subsection: str = "") -> None:
+    """
+    Check the validity of a config section.
+
+    :param config: The config section.
+    :param data_name: The key to check its value.
+    :param data_type: The expected data type.
+    :param subsection: The subsection of the key.
+    """
     config_part = config[subsection] if subsection else config
     sub = f"`{subsection}` sub" if subsection else ""
     data_location = f"`{data_name}` subsection in `{subsection}`" if subsection else f"Section `{data_name}`"
@@ -47,30 +93,58 @@ def check_config_section(config, data_name, data_type, subsection=""):
     config_assert(isinstance(config_part[data_name], data_type), type_error_message[data_type])
 
 
-def set_config_default(config, *sections, key, default, force_falsey_values=False):
+def set_config_default(config: CONFIG_DICT_TYPE, *sections: str, key: str, default: Any,
+                       force_empty_values: bool = False) -> CONFIG_DICT_TYPE:
+    """
+    Fill a specific config key with the default value if it is missing.
+
+    :param config: The bot's config.
+    :param sections: The sections that the key is in.
+    :param key: The key to set.
+    :param default: The default value.
+    :param force_empty_values: Whether an empty value should be replaced with the default value.
+    :return: The new config with the default value inserted if needed.
+    """
     subconfig = config
     for section in sections:
         subconfig = subconfig.setdefault(section, {})
         if not isinstance(subconfig, dict):
             raise Exception(f'The {section} section in {sections} should hold a set of key-value pairs, not a value.')
-    if force_falsey_values:
-        subconfig[key] = subconfig.get(key) or default
+    if force_empty_values:
+        if subconfig.get(key) in [None, ""]:
+            subconfig[key] = default
     else:
         subconfig.setdefault(key, default)
     return subconfig
 
 
-def change_value_to_list(config, *sections, key):
+def change_value_to_list(config: CONFIG_DICT_TYPE, *sections: str, key: str) -> None:
+    """
+    Change a single value to a list. e.g. 60 becomes [60]. Used to maintain backwards compatibility.
+
+    :param config: The bot's config.
+    :param sections: The sections that the key is in.
+    :param key: The key to set.
+    """
     subconfig = set_config_default(config, *sections, key=key, default=[])
+
+    if subconfig[key] is None:
+        subconfig[key] = []
+
     if not isinstance(subconfig[key], list):
         subconfig[key] = [subconfig[key]]
 
 
-def insert_default_values(CONFIG):
+def insert_default_values(CONFIG: CONFIG_DICT_TYPE) -> None:
+    """
+    Insert the default values of most keys to the config if they are missing.
+
+    :param CONFIG: The bot's config.
+    """
     set_config_default(CONFIG, key="abort_time", default=20)
     set_config_default(CONFIG, key="move_overhead", default=1000)
     set_config_default(CONFIG, key="rate_limiting_delay", default=0)
-    set_config_default(CONFIG, "engine", key="working_dir", default=os.getcwd(), force_falsey_values=True)
+    set_config_default(CONFIG, "engine", key="working_dir", default=os.getcwd(), force_empty_values=True)
     set_config_default(CONFIG, "engine", key="silence_stderr", default=False)
     set_config_default(CONFIG, "engine", "draw_or_resign", key="offer_draw_enabled", default=False)
     set_config_default(CONFIG, "engine", "draw_or_resign", key="offer_draw_for_egtb_zero", default=True)
@@ -82,7 +156,7 @@ def insert_default_values(CONFIG):
     set_config_default(CONFIG, "engine", "draw_or_resign", key="offer_draw_score", default=0)
     set_config_default(CONFIG, "engine", "draw_or_resign", key="offer_draw_pieces", default=10)
     set_config_default(CONFIG, "engine", "online_moves", key="max_out_of_book_moves", default=10)
-    set_config_default(CONFIG, "engine", "online_moves", key="max_retries", default=2, force_falsey_values=True)
+    set_config_default(CONFIG, "engine", "online_moves", key="max_retries", default=2, force_empty_values=True)
     set_config_default(CONFIG, "engine", "online_moves", "online_egtb", key="enabled", default=False)
     set_config_default(CONFIG, "engine", "online_moves", "online_egtb", key="source", default="lichess")
     set_config_default(CONFIG, "engine", "online_moves", "online_egtb", key="min_time", default=20)
@@ -92,7 +166,6 @@ def insert_default_values(CONFIG):
     set_config_default(CONFIG, "engine", "online_moves", "chessdb_book", key="min_time", default=20)
     set_config_default(CONFIG, "engine", "online_moves", "chessdb_book", key="move_quality", default="good")
     set_config_default(CONFIG, "engine", "online_moves", "chessdb_book", key="min_depth", default=20)
-    set_config_default(CONFIG, "engine", "online_moves", "chessdb_book", key="contribute", default=True)
     set_config_default(CONFIG, "engine", "online_moves", "lichess_cloud_analysis", key="enabled", default=False)
     set_config_default(CONFIG, "engine", "online_moves", "lichess_cloud_analysis", key="min_time", default=20)
     set_config_default(CONFIG, "engine", "online_moves", "lichess_cloud_analysis", key="move_quality", default="best")
@@ -120,23 +193,24 @@ def insert_default_values(CONFIG):
     set_config_default(CONFIG, "challenge", key="min_base", default=0)
     set_config_default(CONFIG, "challenge", key="max_days", default=math.inf)
     set_config_default(CONFIG, "challenge", key="min_days", default=1)
-    set_config_default(CONFIG, "challenge", key="block_list", default=[])
+    set_config_default(CONFIG, "challenge", key="block_list", default=[], force_empty_values=True)
     set_config_default(CONFIG, "correspondence", key="checkin_period", default=600)
-    set_config_default(CONFIG, "correspondence", key="move_time", default=60, force_falsey_values=True)
+    set_config_default(CONFIG, "correspondence", key="move_time", default=60, force_empty_values=True)
     set_config_default(CONFIG, "correspondence", key="disconnect_time", default=300)
-    set_config_default(CONFIG, "matchmaking", key="challenge_timeout", default=30, force_falsey_values=True)
+    set_config_default(CONFIG, "matchmaking", key="challenge_timeout", default=30, force_empty_values=True)
     CONFIG["matchmaking"]["challenge_timeout"] = max(CONFIG["matchmaking"]["challenge_timeout"], 1)
-    set_config_default(CONFIG, "matchmaking", key="block_list", default=[], force_falsey_values=True)
-    set_config_default(CONFIG, "matchmaking", key="delay_after_decline", default=DelayType.NONE, force_falsey_values=True)
+    set_config_default(CONFIG, "matchmaking", key="block_list", default=[], force_empty_values=True)
+    default_filter = (CONFIG.get("matchmaking") or {}).get("delay_after_decline") or FilterType.NONE.value
+    set_config_default(CONFIG, "matchmaking", key="challenge_filter", default=default_filter, force_empty_values=True)
     set_config_default(CONFIG, "matchmaking", key="allow_matchmaking", default=False)
-    set_config_default(CONFIG, "matchmaking", key="challenge_initial_time", default=[60])
+    set_config_default(CONFIG, "matchmaking", key="challenge_initial_time", default=[60], force_empty_values=True)
     change_value_to_list(CONFIG, "matchmaking", key="challenge_initial_time")
-    set_config_default(CONFIG, "matchmaking", key="challenge_increment", default=[2])
+    set_config_default(CONFIG, "matchmaking", key="challenge_increment", default=[2], force_empty_values=True)
     change_value_to_list(CONFIG, "matchmaking", key="challenge_increment")
-    set_config_default(CONFIG, "matchmaking", key="challenge_days", default=[None])
+    set_config_default(CONFIG, "matchmaking", key="challenge_days", default=[None], force_empty_values=True)
     change_value_to_list(CONFIG, "matchmaking", key="challenge_days")
-    set_config_default(CONFIG, "matchmaking", key="opponent_min_rating", default=600, force_falsey_values=True)
-    set_config_default(CONFIG, "matchmaking", key="opponent_max_rating", default=4000, force_falsey_values=True)
+    set_config_default(CONFIG, "matchmaking", key="opponent_min_rating", default=600, force_empty_values=True)
+    set_config_default(CONFIG, "matchmaking", key="opponent_max_rating", default=4000, force_empty_values=True)
     set_config_default(CONFIG, "matchmaking", key="opponent_allow_tos_violation", default=True)
     set_config_default(CONFIG, "matchmaking", key="challenge_variant", default="random")
     set_config_default(CONFIG, "matchmaking", key="challenge_mode", default="random")
@@ -147,17 +221,67 @@ def insert_default_values(CONFIG):
 
     for type in ["hello", "goodbye"]:
         for target in ["", "_spectators"]:
-            set_config_default(CONFIG, "greeting", key=type + target, default="", force_falsey_values=True)
+            set_config_default(CONFIG, "greeting", key=type + target, default="", force_empty_values=True)
 
 
-def log_config(CONFIG):
+def log_config(CONFIG: CONFIG_DICT_TYPE) -> None:
+    """
+    Log the config to make debugging easier.
+
+    :param CONFIG: The bot's config.
+    """
     logger_config = CONFIG.copy()
     logger_config["token"] = "logger"
     logger.debug(f"Config:\n{yaml.dump(logger_config, sort_keys=False)}")
     logger.debug("====================")
 
 
-def load_config(config_file):
+def validate_config(CONFIG: CONFIG_DICT_TYPE) -> None:
+    """Check if the config is valid."""
+    check_config_section(CONFIG, "token", str)
+    check_config_section(CONFIG, "url", str)
+    check_config_section(CONFIG, "engine", dict)
+    check_config_section(CONFIG, "challenge", dict)
+    check_config_section(CONFIG, "dir", str, "engine")
+    check_config_section(CONFIG, "name", str, "engine")
+
+    config_assert(CONFIG["token"] != "xxxxxxxxxxxxxxxx",
+                  "Your config.yml has the default Lichess API token. This is probably wrong.")
+    config_assert(os.path.isdir(CONFIG["engine"]["dir"]),
+                  f'Your engine directory `{CONFIG["engine"]["dir"]}` is not a directory.')
+
+    working_dir = CONFIG["engine"].get("working_dir")
+    config_assert(not working_dir or os.path.isdir(working_dir),
+                  f"Your engine's working directory `{working_dir}` is not a directory.")
+
+    engine = os.path.join(CONFIG["engine"]["dir"], CONFIG["engine"]["name"])
+    config_assert(os.path.isfile(engine) or CONFIG["engine"]["protocol"] == "homemade",
+                  f"The engine {engine} file does not exist.")
+    config_assert(os.access(engine, os.X_OK) or CONFIG["engine"]["protocol"] == "homemade",
+                  f"The engine {engine} doesn't have execute (x) permission. Try: chmod +x {engine}")
+
+    if CONFIG["engine"]["protocol"] == "xboard":
+        for section, subsection in (("online_moves", "online_egtb"),
+                                    ("lichess_bot_tbs", "syzygy"),
+                                    ("lichess_bot_tbs", "gaviota")):
+            online_section = (CONFIG["engine"].get(section) or {}).get(subsection) or {}
+            config_assert(online_section.get("move_quality") != "suggest" or not online_section.get("enabled"),
+                          f"XBoard engines can't be used with `move_quality` set to `suggest` in {subsection}.")
+
+    filter_option = "challenge_filter"
+    filter_type = (CONFIG.get("matchmaking") or {}).get(filter_option)
+    config_assert(filter_type is None or filter_type in FilterType.__members__.values(),
+                  f"{filter_type} is not a valid value for {filter_option} (formerly delay_after_decline) parameter. "
+                  f"Choices are: {', '.join(FilterType)}.")
+
+
+def load_config(config_file: str) -> Configuration:
+    """
+    Read the config.
+
+    :param config_file: The filename of the config (usually `config.yml`).
+    :return: A `Configuration` object containing the config.
+    """
     with open(config_file) as stream:
         try:
             CONFIG = yaml.safe_load(stream)
@@ -165,41 +289,14 @@ def load_config(config_file):
             logger.exception("There appears to be a syntax problem with your config.yml")
             raise
 
-        log_config(CONFIG)
+    log_config(CONFIG)
 
-        if "LICHESS_BOT_TOKEN" in os.environ:
-            CONFIG["token"] = os.environ["LICHESS_BOT_TOKEN"]
+    if "LICHESS_BOT_TOKEN" in os.environ:
+        CONFIG["token"] = os.environ["LICHESS_BOT_TOKEN"]
 
-        check_config_section(CONFIG, "token", str)
-        check_config_section(CONFIG, "url", str)
-        check_config_section(CONFIG, "engine", dict)
-        check_config_section(CONFIG, "challenge", dict)
-        check_config_section(CONFIG, "dir", str, "engine")
-        check_config_section(CONFIG, "name", str, "engine")
-
-        config_assert(CONFIG["token"] != "xxxxxxxxxxxxxxxx",
-                      "Your config.yml has the default Lichess API token. This is probably wrong.")
-        config_assert(os.path.isdir(CONFIG["engine"]["dir"]),
-                      f'Your engine directory `{CONFIG["engine"]["dir"]}` is not a directory.')
-
-        working_dir = CONFIG["engine"].get("working_dir")
-        config_assert(not working_dir or os.path.isdir(working_dir),
-                      f"Your engine's working directory `{working_dir}` is not a directory.")
-
-        engine = os.path.join(CONFIG["engine"]["dir"], CONFIG["engine"]["name"])
-        config_assert(os.path.isfile(engine) or CONFIG["engine"]["protocol"] == "homemade",
-                      f"The engine {engine} file does not exist.")
-        config_assert(os.access(engine, os.X_OK) or CONFIG["engine"]["protocol"] == "homemade",
-                      f"The engine {engine} doesn't have execute (x) permission. Try: chmod +x {engine}")
-
-        if CONFIG["engine"]["protocol"] == "xboard":
-            for section, subsection in (("online_moves", "online_egtb"),
-                                        ("lichess_bot_tbs", "syzygy"),
-                                        ("lichess_bot_tbs", "gaviota")):
-                online_section = (CONFIG["engine"].get(section) or {}).get(subsection) or {}
-                config_assert(online_section.get("move_quality") != "suggest" or not online_section.get("enabled"),
-                              f"XBoard engines can't be used with `move_quality` set to `suggest` in {subsection}.")
-
+    validate_config(CONFIG)
     insert_default_values(CONFIG)
     log_config(CONFIG)
+    validate_config(CONFIG)
+
     return Configuration(CONFIG)
