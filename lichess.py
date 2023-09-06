@@ -6,8 +6,10 @@ from requests.exceptions import ConnectionError, HTTPError, ReadTimeout
 from http.client import RemoteDisconnected
 import backoff
 import logging
+import traceback
 from collections import defaultdict
-from timer import Timer
+import datetime
+from timer import Timer, seconds, sec_str
 from typing import Optional, Union, Any
 import chess.engine
 JSON_REPLY_TYPE = dict[str, Any]
@@ -56,6 +58,13 @@ def is_final(exception: Exception) -> bool:
     return isinstance(exception, HTTPError) and exception.response.status_code < 500
 
 
+def backoff_handler(details: Any) -> None:
+    """Log exceptions inside functions with the backoff decorator."""
+    logger.debug("Backing off {wait:0.1f} seconds after {tries} tries "
+                 "calling function {target} with args {args} and kwargs {kwargs}".format(**details))
+    logger.debug(f"Exception: {traceback.format_exc()}")
+
+
 # Docs: https://lichess.org/api.
 class Lichess:
     """Communication with lichess.org (and chessdb.cn for getting moves)."""
@@ -90,8 +99,8 @@ class Lichess:
             raise RuntimeError("Token in config file is not recognized by lichess. "
                                "Please check that it was copied correctly into your configuration file.")
 
-        scopes = token_info["scopes"].split(",")
-        if "bot:play" not in scopes:
+        scopes = token_info["scopes"]
+        if "bot:play" not in scopes.split(","):
             raise RuntimeError("Please use an API access token for your bot that "
                                'has the scope "Play games with the bot API (bot:play)". '
                                f"The current token has: {scopes}.")
@@ -101,25 +110,29 @@ class Lichess:
                           max_time=60,
                           interval=0.1,
                           giveup=is_final,
+                          on_backoff=backoff_handler,
                           backoff_log_level=logging.DEBUG,
                           giveup_log_level=logging.DEBUG)
     def api_get(self, endpoint_name: str, *template_args: str,
-                params: Optional[dict[str, str]] = None) -> requests.Response:
+                params: Optional[dict[str, str]] = None,
+                stream: bool = False, timeout: int = 2) -> requests.Response:
         """
         Send a GET to lichess.org.
 
         :param endpoint_name: The name of the endpoint.
         :param template_args: The values that go in the url (e.g. the challenge id if `endpoint_name` is `accept`).
         :param params: Parameters sent to lichess.org.
+        :param stream: Whether the data returned from lichess.org should be streamed.
+        :param timeout: The amount of time in seconds to wait for a response.
         :return: lichess.org's response.
         """
         logging.getLogger("backoff").setLevel(self.logging_level)
         path_template = self.get_path_template(endpoint_name)
         url = urljoin(self.baseUrl, path_template.format(*template_args))
-        response = self.session.get(url, params=params, timeout=2)
+        response = self.session.get(url, params=params, timeout=timeout, stream=stream)
 
         if is_new_rate_limit(response):
-            delay = 1 if endpoint_name == "move" else 60
+            delay = seconds(1 if endpoint_name == "move" else 60)
             self.set_rate_limit_delay(path_template, delay)
 
         response.raise_for_status()
@@ -172,6 +185,7 @@ class Lichess:
                           max_time=60,
                           interval=0.1,
                           giveup=is_final,
+                          on_backoff=backoff_handler,
                           backoff_log_level=logging.DEBUG,
                           giveup_log_level=logging.DEBUG)
     def api_post(self,
@@ -200,7 +214,7 @@ class Lichess:
         response = self.session.post(url, data=data, headers=headers, params=params, json=payload, timeout=2)
 
         if is_new_rate_limit(response):
-            self.set_rate_limit_delay(path_template, 60)
+            self.set_rate_limit_delay(path_template, seconds(60))
 
         if raise_for_status:
             response.raise_for_status()
@@ -218,10 +232,10 @@ class Lichess:
         path_template = ENDPOINTS[endpoint_name]
         if self.is_rate_limited(path_template):
             raise RateLimited(f"{path_template} is rate-limited. "
-                              f"Will retry in {int(self.rate_limit_time_left(path_template))} seconds.")
+                              f"Will retry in {sec_str(self.rate_limit_time_left(path_template))} seconds.")
         return path_template
 
-    def set_rate_limit_delay(self, path_template: str, delay_time: int) -> None:
+    def set_rate_limit_delay(self, path_template: str, delay_time: datetime.timedelta) -> None:
         """
         Set a delay to a path template if it was rate limited.
 
@@ -235,7 +249,7 @@ class Lichess:
         """Check if a path template is rate limited."""
         return not self.rate_limit_timers[path_template].is_expired()
 
-    def rate_limit_time_left(self, path_template: str) -> float:
+    def rate_limit_time_left(self, path_template: str) -> datetime.timedelta:
         """How much time is left until we can use the path template normally."""
         return self.rate_limit_timers[path_template].time_until_expiration()
 
@@ -276,13 +290,11 @@ class Lichess:
 
     def get_event_stream(self) -> requests.models.Response:
         """Get a stream of the events (e.g. challenge, gameStart)."""
-        url = urljoin(self.baseUrl, ENDPOINTS["stream_event"])
-        return requests.get(url, headers=self.header, stream=True, timeout=15)
+        return self.api_get("stream_event", stream=True, timeout=15)
 
     def get_game_stream(self, game_id: str) -> requests.models.Response:
         """Get  stream of the in-game events (e.g. moves by the opponent)."""
-        url = urljoin(self.baseUrl, ENDPOINTS["stream"].format(game_id))
-        return requests.get(url, headers=self.header, stream=True, timeout=15)
+        return self.api_get("stream", game_id, stream=True, timeout=15)
 
     def accept_challenge(self, challenge_id: str) -> JSON_REPLY_TYPE:
         """Accept a challenge."""
@@ -347,7 +359,7 @@ class Lichess:
         """Cancel a challenge."""
         return self.api_post("cancel", challenge_id, raise_for_status=False)
 
-    def online_book_get(self, path: str, params: Optional[dict[str, Any]] = None) -> JSON_REPLY_TYPE:
+    def online_book_get(self, path: str, params: Optional[dict[str, Any]] = None, stream: bool = False) -> JSON_REPLY_TYPE:
         """Get an external move from online sources (chessdb or lichess.org)."""
         @backoff.on_exception(backoff.constant,
                               (RemoteDisconnected, ConnectionError, HTTPError, ReadTimeout),
@@ -355,10 +367,11 @@ class Lichess:
                               max_tries=self.max_retries,
                               interval=0.1,
                               giveup=is_final,
+                              on_backoff=backoff_handler,
                               backoff_log_level=logging.DEBUG,
                               giveup_log_level=logging.DEBUG)
         def online_book_get() -> JSON_REPLY_TYPE:
-            json_response: JSON_REPLY_TYPE = self.other_session.get(path, timeout=2, params=params).json()
+            json_response: JSON_REPLY_TYPE = self.other_session.get(path, timeout=2, params=params, stream=stream).json()
             return json_response
         return online_book_get()
 

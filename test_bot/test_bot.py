@@ -13,7 +13,8 @@ import stat
 import shutil
 import importlib
 import config
-from typing import Dict, Any
+from timer import Timer, to_seconds, seconds
+from typing import Any
 if __name__ == "__main__":
     sys.exit(f"The script {os.path.basename(__file__)} should only be run by pytest.")
 shutil.copyfile("lichess.py", "correct_lichess.py")
@@ -26,16 +27,19 @@ stockfish_path = f"./TEMP/sf{file_extension}"
 
 
 def download_sf() -> None:
-    """Download Stockfish 14.1."""
+    """Download Stockfish 15."""
+    if os.path.exists(stockfish_path):
+        return
     windows_or_linux = "win" if platform == "win32" else "linux"
-    base_name = f"stockfish_14.1_{windows_or_linux}_x64"
-    zip_link = f"https://stockfishchess.org/files/{base_name}.zip"
+    base_name = f"stockfish_15_{windows_or_linux}_x64"
+    exec_name = "stockfish_15_x64"
+    zip_link = f"https://files.stockfishchess.org/files/{base_name}.zip"
     response = requests.get(zip_link, allow_redirects=True)
     with open("./TEMP/sf_zip.zip", "wb") as file:
         file.write(response.content)
     with zipfile.ZipFile("./TEMP/sf_zip.zip", "r") as zip_ref:
         zip_ref.extractall("./TEMP/")
-    shutil.copyfile(f"./TEMP/{base_name}/{base_name}{file_extension}", stockfish_path)
+    shutil.copyfile(f"./TEMP/{base_name}/{exec_name}{file_extension}", stockfish_path)
     if windows_or_linux == "linux":
         st = os.stat(stockfish_path)
         os.chmod(stockfish_path, st.st_mode | stat.S_IEXEC)
@@ -43,6 +47,8 @@ def download_sf() -> None:
 
 def download_lc0() -> None:
     """Download Leela Chess Zero 0.29.0."""
+    if os.path.exists("./TEMP/lc0.exe"):
+        return
     response = requests.get("https://github.com/LeelaChessZero/lc0/releases/download/v0.29.0/lc0-v0.29.0-windows-cpu-dnnl.zip",
                             allow_redirects=True)
     with open("./TEMP/lc0_zip.zip", "wb") as file:
@@ -53,6 +59,8 @@ def download_lc0() -> None:
 
 def download_sjeng() -> None:
     """Download Sjeng."""
+    if os.path.exists("./TEMP/sjeng.exe"):
+        return
     response = requests.get("https://sjeng.org/ftp/Sjeng112.zip", allow_redirects=True)
     with open("./TEMP/sjeng_zip.zip", "wb") as file:
         file.write(response.content)
@@ -61,15 +69,14 @@ def download_sjeng() -> None:
     shutil.copyfile("./TEMP/Release/Sjeng112.exe", "./TEMP/sjeng.exe")
 
 
-if os.path.exists("TEMP"):
-    shutil.rmtree("TEMP")
-os.mkdir("TEMP")
+if not os.path.exists("TEMP"):
+    os.mkdir("TEMP")
 download_sf()
 if platform == "win32":
     download_lc0()
     download_sjeng()
 logging_level = lichess_bot.logging.DEBUG
-lichess_bot.logging_configurer(logging_level, None)
+lichess_bot.logging_configurer(logging_level, None, None, False)
 lichess_bot.logger.info("Downloaded engines")
 
 
@@ -79,15 +86,15 @@ def thread_for_test() -> None:
     open("./logs/states.txt", "w").close()
     open("./logs/result.txt", "w").close()
 
-    start_time = 10.
-    increment = 0.1
+    start_time = seconds(10)
+    increment = seconds(0.1)
 
     board = chess.Board()
     wtime = start_time
     btime = start_time
 
     with open("./logs/states.txt", "w") as file:
-        file.write(f"\n{wtime},{btime}")
+        file.write(f"\n{to_seconds(wtime)},{to_seconds(btime)}")
 
     engine = chess.engine.SimpleEngine.popen_uci(stockfish_path)
     engine.configure({"Skill Level": 0, "Move Overhead": 1000, "Use NNUE": False})
@@ -99,13 +106,12 @@ def thread_for_test() -> None:
                                    chess.engine.Limit(time=1),
                                    ponder=False)
             else:
-                start_time = time.perf_counter_ns()
+                move_timer = Timer()
                 move = engine.play(board,
-                                   chess.engine.Limit(white_clock=wtime - 2,
-                                                      white_inc=increment),
+                                   chess.engine.Limit(white_clock=to_seconds(wtime) - 2,
+                                                      white_inc=to_seconds(increment)),
                                    ponder=False)
-                end_time = time.perf_counter_ns()
-                wtime -= (end_time - start_time) / 1e9
+                wtime -= move_timer.time_since_reset()
                 wtime += increment
             engine_move = move.move
             if engine_move is None:
@@ -122,7 +128,7 @@ def thread_for_test() -> None:
                 file.write(state_str)
 
         else:  # lichess-bot move.
-            start_time = time.perf_counter_ns()
+            move_timer = Timer()
             state2 = state_str
             moves_are_correct = False
             while state2 == state_str or not moves_are_correct:
@@ -139,9 +145,8 @@ def thread_for_test() -> None:
                         moves_are_correct = False
             with open("./logs/states.txt") as states:
                 state2 = states.read()
-            end_time = time.perf_counter_ns()
             if len(board.move_stack) > 1:
-                btime -= (end_time - start_time) / 1e9
+                btime -= move_timer.time_since_reset()
                 btime += increment
             move_str = state2.split("\n")[0].split(" ")[-1]
             board.push_uci(move_str)
@@ -150,7 +155,7 @@ def thread_for_test() -> None:
         with open("./logs/states.txt") as states:
             state_str = states.read()
         state = state_str.split("\n")
-        state[1] = f"{wtime},{btime}"
+        state[1] = f"{to_seconds(wtime)},{to_seconds(btime)}"
         state_str = "\n".join(state)
         with open("./logs/states.txt", "w") as file:
             file.write(state_str)
@@ -164,7 +169,7 @@ def thread_for_test() -> None:
         file.write("1" if win else "0")
 
 
-def run_bot(raw_config: Dict[str, Any], logging_level: int) -> str:
+def run_bot(raw_config: dict[str, Any], logging_level: int) -> str:
     """Start lichess-bot."""
     config.insert_default_values(raw_config)
     CONFIG = config.Configuration(raw_config)
@@ -180,7 +185,7 @@ def run_bot(raw_config: Dict[str, Any], logging_level: int) -> str:
 
     thr = threading.Thread(target=thread_for_test)
     thr.start()
-    lichess_bot.start(li, user_profile, CONFIG, logging_level, None, one_game=True)
+    lichess_bot.start(li, user_profile, CONFIG, logging_level, None, None, one_game=True)
     thr.join()
 
     with open("./logs/result.txt") as file:
