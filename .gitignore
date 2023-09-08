@@ -6,3 +6,4 @@ test_bot/__pycache__
 .venv
 lichess_bot_auto_logs
 daily_challenge_times.txt
+game_records/*pgn
