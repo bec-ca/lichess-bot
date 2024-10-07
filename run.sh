@@ -2,4 +2,8 @@
 
 source .venv/bin/activate
 
-exec python3 ./lichess-bot.py
+while true; do
+  python3 ./lichess-bot.py
+
+  sleep 1m
+done
