@@ -36,7 +36,7 @@ from collections.abc import Iterator, MutableSequence
 from http.client import RemoteDisconnected
 from queue import Empty
 from multiprocessing.pool import Pool
-from typing import Optional, Union, TypedDict
+from typing import Optional, Union, TypedDict, cast
 from types import FrameType
 MULTIPROCESSING_LIST_TYPE = MutableSequence[model.Challenge]
 LICHESS_TYPE = Union[lichess.Lichess, test_bot.lichess.Lichess]
@@ -109,7 +109,10 @@ signal.signal(signal.SIGINT, signal_handler)
 
 def upgrade_account(li: LICHESS_TYPE) -> bool:
     """Upgrade the account to a BOT account."""
-    if li.upgrade_to_bot_account() is None:
+    try:
+        li.upgrade_to_bot_account()
+    except HTTPError:
+        logger.exception("Failed to upgrade to Bot Account.")
         return False
 
     logger.info("Successfully upgraded to Bot Account!")
@@ -150,12 +153,18 @@ def do_correspondence_ping(control_queue: CONTROL_QUEUE_TYPE, period: datetime.t
 def write_pgn_records(pgn_queue: PGN_QUEUE_TYPE, config: Configuration, username: str) -> None:
     """Write PGN records to files as games finish."""
     while True:
+        mark_task_done = False
         try:
             event = pgn_queue.get()
+            mark_task_done = True
             save_pgn_record(event, config, username)
-            pgn_queue.task_done()
         except InterruptedError:
             pass
+        except Exception:
+            logger.exception("Could not write PGN to file")
+
+        if mark_task_done:
+            pgn_queue.task_done()
 
 
 def handle_old_logs(auto_log_filename: str) -> None:
@@ -828,7 +837,7 @@ def print_move_number(board: chess.Board) -> None:
 def next_update(lines: Iterator[bytes]) -> GameEventType:
     """Get the next game state."""
     binary_chunk = next(lines)
-    upd: GameEventType = json.loads(binary_chunk.decode("utf-8")) if binary_chunk else {}
+    upd = cast(GameEventType, json.loads(binary_chunk.decode("utf-8"))) if binary_chunk else {}
     if upd:
         logger.debug(f"Game state: {upd}")
     return upd
