@@ -1,19 +1,44 @@
-# lichess-bot
-[![Python Build](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/python-build.yml/badge.svg)](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/python-build.yml)
-[![Python Test](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/python-test.yml/badge.svg)](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/python-test.yml)
-[![Mypy](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/mypy.yml/badge.svg)](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/mypy.yml)
+<div align="center">
 
-A bridge between [Lichess Bot API](https://lichess.org/api#tag/Bot) and bots.
+  ![lichess-bot](https://github.com/lichess-bot-devs/lichess-bot-images/blob/main/lichess-bot-icon-400.png)
+
+  <h1>lichess-bot</h1>
+
+  A bridge between [lichess.org](https://lichess.org) and bots.
+  <br>
+  <strong>[Explore lichess-bot docs »](https://github.com/lichess-bot-devs/lichess-bot/wiki)</strong>
+  <br>
+  <br>
+  [![Python Build](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/python-build.yml/badge.svg)](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/python-build.yml)
+  [![Python Test](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/python-test.yml/badge.svg)](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/python-test.yml)
+  [![Mypy](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/mypy.yml/badge.svg)](https://github.com/lichess-bot-devs/lichess-bot/actions/workflows/mypy.yml)
+
+</div>
+
+## Overview
+
+[lichess-bot](https://github.com/lichess-bot-devs/lichess-bot) is a free bridge
+between the [Lichess Bot API](https://lichess.org/api#tag/Bot) and chess engines.
+
+With lichess-bot, you can create and operate a bot on lichess. Your bot will be able to play against humans and bots alike, and you will be able to view these games live on lichess.
+
+See also the lichess-bot [documentation](https://github.com/lichess-bot-devs/lichess-bot/wiki) for further usage help.
 
 ## Features
 Supports:
 - Every variant and time control
 - UCI, XBoard, and Homemade engines
-- Matchmaking
-- Offering Draw / Resigning
+- Matchmaking (challenging other bots)
+- Offering Draws and Resigning
+- Accepting move takeback requests from opponents
 - Saving games as PGN
 - Local & Online Opening Books
 - Local & Online Endgame Tablebases
+
+Can run on:
+- Python 3.9 and later
+- Windows, Linux and MacOS
+- Docker
 
 ## Steps
 1. [Install lichess-bot](https://github.com/lichess-bot-devs/lichess-bot/wiki/How-to-Install)
@@ -24,7 +49,8 @@ Supports:
 6. [Run lichess-bot](https://github.com/lichess-bot-devs/lichess-bot/wiki/How-to-Run-lichess%E2%80%90bot)
 
 ## Advanced options
-- [Create a custom engine](https://github.com/lichess-bot-devs/lichess-bot/wiki/Create-a-custom-engine)
+- [Create a homemade engine](https://github.com/lichess-bot-devs/lichess-bot/wiki/Create-a-homemade-engine)
+- [Add extra customizations](https://github.com/lichess-bot-devs/lichess-bot/wiki/Extra-customizations)
 
 <br />
 

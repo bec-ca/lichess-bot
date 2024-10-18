@@ -1,20 +1,36 @@
 """Allows lichess-bot to send messages to the chat."""
-from __future__ import annotations
 import logging
-import model
-from engine_wrapper import EngineWrapper
-from lichess import Lichess
+import test_bot.lichess
+from lib import model
+from lib.engine_wrapper import EngineWrapper
+from lib import lichess
+from lib.types import GameEventType
 from collections.abc import Sequence
-from timer import seconds
+from lib.timer import seconds
+from typing import Union
 MULTIPROCESSING_LIST_TYPE = Sequence[model.Challenge]
+LICHESS_TYPE = Union[lichess.Lichess, test_bot.lichess.Lichess]
 
 logger = logging.getLogger(__name__)
+
+
+class ChatLine:
+    """Information about the message."""
+
+    def __init__(self, message_info: GameEventType) -> None:
+        """Information about the message."""
+        self.room = message_info["room"]
+        """Whether the message was sent in the chat room or in the spectator room."""
+        self.username = message_info["username"]
+        """The username of the account that sent the message."""
+        self.text = message_info["text"]
+        """The message sent."""
 
 
 class Conversation:
     """Enables the bot to communicate with its opponent and the spectators."""
 
-    def __init__(self, game: model.Game, engine: EngineWrapper, li: Lichess, version: str,
+    def __init__(self, game: model.Game, engine: EngineWrapper, li: LICHESS_TYPE, version: str,
                  challenge_queue: MULTIPROCESSING_LIST_TYPE) -> None:
         """
         Communication between lichess-bot and the game chats.
@@ -39,7 +55,7 @@ class Conversation:
 
         :param line: Information about the message.
         """
-        logger.info(f'*** {self.game.url()} [{line.room}] {line.username}: {line.text.encode("utf-8")!r}')
+        logger.info(f'*** {self.game.url()} [{line.room}] {line.username}: {line.text}')
         if line.text[0] == self.command_prefix:
             self.command(line, line.text[1:].lower())
 
@@ -51,20 +67,21 @@ class Conversation:
         :param cmd: The command to react to.
         """
         from_self = line.username == self.game.username
+        is_eval = cmd.startswith("eval")
         if cmd == "commands" or cmd == "help":
-            self.send_reply(line, "Supported commands: !wait (wait a minute for my first move), !name, !howto, !eval, !queue")
+            self.send_reply(line,
+                            "Supported commands: !wait (wait a minute for my first move), !name, "
+                            "!eval (or any text starting with !eval), !queue")
         elif cmd == "wait" and self.game.is_abortable():
             self.game.ping(seconds(60), seconds(120), seconds(120))
             self.send_reply(line, "Waiting 60 seconds...")
         elif cmd == "name":
             name = self.game.me.name
             self.send_reply(line, f"{name} running {self.engine.name()} (lichess-bot v{self.version})")
-        elif cmd == "howto":
-            self.send_reply(line, "How to run: Check out 'Lichess Bot API'")
-        elif cmd == "eval" and (from_self or line.room == "spectator"):
+        elif is_eval and (from_self or line.room == "spectator"):
             stats = self.engine.get_stats(for_chat=True)
             self.send_reply(line, ", ".join(stats))
-        elif cmd == "eval":
+        elif is_eval:
             self.send_reply(line, "I don't tell that to my opponent, sorry.")
         elif cmd == "queue":
             if self.challengers:
@@ -87,16 +104,3 @@ class Conversation:
         """Send the message to the chat."""
         if message:
             self.send_reply(ChatLine({"room": room, "username": "", "text": ""}), message)
-
-
-class ChatLine:
-    """Information about the message."""
-
-    def __init__(self, message_info: dict[str, str]) -> None:
-        """Information about the message."""
-        self.room = message_info["room"]
-        """Whether the message was sent in the chat room or in the spectator room."""
-        self.username = message_info["username"]
-        """The username of the account that sent the message."""
-        self.text = message_info["text"]
-        """The message sent."""

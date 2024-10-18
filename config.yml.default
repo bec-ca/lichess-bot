@@ -4,6 +4,9 @@ url: "https://lichess.org/"        # Lichess base URL.
 engine:                            # Engine settings.
   dir: "./engines/"                # Directory containing the engine. This can be an absolute path or one relative to lichess-bot/.
   name: "engine_name"              # Binary name of the engine to use.
+# interpreter: "java"
+# interpreter_options:
+#   - "-jar"
   working_dir: ""                  # Directory where the chess engine will read and write files. If blank or missing, the current directory is used.
                                    # NOTE: If working_dir is set, the engine will look for files and directories relative to this directory, not where lichess-bot was launched. Absolute paths are unaffected.
   protocol: "uci"                  # "uci", "xboard" or "homemade"
@@ -38,6 +41,7 @@ engine:                            # Engine settings.
   online_moves:
     max_out_of_book_moves: 10      # Stop using online opening books after they don't have a move for 'max_out_of_book_moves' positions. Doesn't apply to the online endgame tablebases.
     max_retries: 2                 # The maximum amount of retries when getting an online move.
+    # max_depth: 10                # How many moves from the start to take from online books. Default is no limit.
     chessdb_book:
       enabled: false               # Whether or not to use chessdb book.
       min_time: 20                 # Minimum time (in seconds) to use chessdb book.
@@ -114,6 +118,8 @@ abort_time: 30                     # Time to abort a game in seconds when there 
 fake_think_time: false             # Artificially slow down the bot to pretend like it's thinking.
 rate_limiting_delay: 0             # Time (in ms) to delay after sending a move to prevent "Too Many Requests" errors.
 move_overhead: 2000                # Increase if your bot flags games too often.
+max_takebacks_accepted: 0          # The number of times to allow an opponent to take back a move in a game.
+quit_after_all_games_finish: false # If set to true, then pressing Ctrl-C to quit will only stop lichess-bot after all current games have finished.
 
 correspondence:
   move_time: 60                    # Time in seconds to search in correspondence games.
@@ -124,6 +130,7 @@ correspondence:
 challenge:                         # Incoming challenges.
   concurrency: 1                   # Number of games to play simultaneously.
   sort_by: "best"                  # Possible values: "best" and "first".
+  preference: "none"               # Possible values: "none", "human", "bot".
   accept_bot: true                 # Accepts challenges coming from other bots.
   only_bot: false                  # Accept challenges by bots only.
   max_increment: 20                # Maximum amount of increment to accept a challenge in seconds. The max is 180. Set to 0 for no increment.
@@ -144,7 +151,7 @@ challenge:                         # Incoming challenges.
 #   - kingOfTheHill
 #   - racingKings
 #   - threeCheck
-  time_controls:                   # Time controls to accept.
+  time_controls:                   # Time controls to accept (bots are not allowed to play ultraBullet).
     - bullet
     - blitz
     - rapid
@@ -161,7 +168,7 @@ challenge:                         # Incoming challenges.
 #   - user4
 # recent_bot_challenge_age: 60     # Maximum age of a bot challenge to be considered recent in seconds
 # max_recent_bot_challenges: 2     # Maximum number of recent challenges that can be accepted from the same bot
-  bullet_requires_increment: False # Require that bullet game challenges from bots have a non-zero increment
+  bullet_requires_increment: false # Require that bullet game challenges from bots have a non-zero increment
 
 greeting:
   # Optional substitution keywords (include curly braces):
@@ -181,6 +188,7 @@ greeting:
 
 matchmaking:
   allow_matchmaking: false         # Set it to 'true' to challenge other bots.
+  allow_during_games: false        # Set it to 'true' to create challenges during long games.
   challenge_variant: "random"      # If set to 'random', the bot will choose one variant from the variants enabled in 'challenge.variants'.
   challenge_timeout: 30            # Create a challenge after being idle for 'challenge_timeout' minutes. The minimum is 1 minute.
   challenge_initial_time:          # Initial time in seconds of the challenge (to be chosen at random).
@@ -195,12 +203,14 @@ matchmaking:
 # opponent_min_rating: 600         # Opponents rating should be above this value (600 is the minimum rating in lichess).
 # opponent_max_rating: 4000        # Opponents rating should be below this value (4000 is the maximum rating in lichess).
   opponent_rating_difference: 300  # The maximum difference in rating between the bot's rating and opponent's rating.
+  rating_preference: "none"        # One of "none", "high", "low".
   opponent_allow_tos_violation: false # Set to 'true' to allow challenging bots that violated the Lichess Terms of Service.
   challenge_mode: "random"         # Set it to the mode in which challenges are sent. Possible options are 'casual', 'rated' and 'random'.
   challenge_filter: none           # If a bot declines a challenge, do not issue a similar challenge to that bot. Possible options are 'none', 'coarse', and 'fine'.
 # block_list:                      # The list of bots that will not be challenged
 #   - user1
 #   - user2
+  include_challenge_block_list: false  # Do not challenge bots in the challenge: block_list in addition to the matchmaking block list.
 
 # overrides:                       # List of overrides for the matchmaking specifications above. When a challenge is created, either the default specification above or one of the overrides will be randomly chosen.
 #   bullet_only_horde:             # Name of the override. Can be anything as long as each override has a unique name ("bullet_only_horde" and "easy_chess960" in these examples).

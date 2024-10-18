@@ -2,10 +2,12 @@
 There are many possible options within `config.yml` for configuring lichess-bot.
 
 ## Engine options
-- `protocol`: Specify which protocol your engine uses. Choices are
-    1. `"uci"` for the [Universal Chess Interface](http://wbec-ridderkerk.nl/html/UCIProtocol.html)
+- `interpreter`: Specify whether your engine requires an interpreter to run (e.g. `java`, `python`).
+- `interpreter_options`: A list of options passed to the interpreter (e.g. `-jar` for `java`).
+- `protocol`: Specify which protocol your engine uses. Choices are:
+    1. `"uci"` for the [Universal Chess Interface](https://wbec-ridderkerk.nl/html/UCIProtocol.html)
     2. `"xboard"` for the XBoard/WinBoard/[Chess Engine Communication Protocol](https://www.gnu.org/software/xboard/engine-intf.html)
-    3. `"homemade"` if you want to write your own engine in Python within lichess-bot. See [**Create a custom engine**](https://github.com/lichess-bot-devs/lichess-bot/wiki/Create-a-custom-engine).
+    3. `"homemade"` if you want to write your own engine in Python within lichess-bot. See [**Create a homemade engine**](https://github.com/lichess-bot-devs/lichess-bot/wiki/Create-a-homemade-engine).
 - `ponder`: Specify whether your bot will ponder--i.e., think while the bot's opponent is choosing a move.
 - `engine_options`: Command line options to pass to the engine on startup. For example, the `config.yml.default` has the configuration
 ```yml
@@ -96,6 +98,7 @@ will precede the `go` command to start thinking with `sd 5`. The other `go_comma
     4. `online_egtb`: Consults either the online Syzygy 7-piece endgame tablebase [hosted by Lichess](https://lichess.org/blog/W3WeMyQAACQAdfAL/7-piece-syzygy-tablebases-are-complete) or the chessdb listed above.
     - `max_out_of_book_moves`: Stop using online opening books after they don't have a move for `max_out_of_book_moves` positions. Doesn't apply to the online endgame tablebases.
     - `max_retries`: The maximum amount of retries when getting an online move.
+    - `max_depth`: The maximum number of moves a bot can make in the opening before it stops consulting the online opening books. If `max_depth` is 5, then the bot will stop consulting the online books after its fifth move.
     - Configurations common to all:
         - `enabled`: Whether to use the database at all.
         - `min_time`: The minimum time in seconds on the game clock necessary to allow the online database to be consulted.
@@ -142,6 +145,8 @@ will precede the `go` command to start thinking with `sd 5`. The other `go_comma
     - `offer_draw_moves`: The absolute value of the evaluation has to be less than or equal to `offer_draw_score` for `offer_draw_moves` amount of moves for the bot to offer/accept draw.
     - `offer_draw_pieces`: The bot only offers/accepts draws if the position has less than or equal to `offer_draw_pieces` pieces.
 
+  Note: If a game reaches 300 moves and no checkmate is delivered on move 300, it is adjudicated as a draw and shows up in the logs as _draw by agreement_ (see [this discussion](https://lichess.org/forum/general-chess-discussion/lichess-300-move-rule-forced-draw) and [this commit](https://github.com/lichess-org/lila/commit/f8921999115878a98431cd722b267281793b7f6f)). That's a lichess-specific behavior which doesn't depend on lichess-bot version or configuration.
+
 ## Options for correspondence games
 - `correspondence` These options control how the engine behaves during correspondence games.
   - `move_time`: How many seconds to think for each move.
@@ -153,6 +158,7 @@ will precede the `go` command to start thinking with `sd 5`. The other `go_comma
 - `challenge`: Control what kind of games for which the bot should accept challenges. All of the following options must be satisfied by a challenge to be accepted.
   - `concurrency`: The maximum number of games to play simultaneously.
   - `sort_by`: Whether to start games by the best rated/titled opponent `"best"` or by first-come-first-serve `"first"`.
+  - `preference`: Whether to prioritize human opponents, bot opponents, or treat them equally.
   - `accept_bot`: Whether to accept challenges from other bots.
   - `only_bot`: Whether to only accept challenges from other bots.
   - `max_increment`: The maximum value of time increment.
@@ -170,7 +176,7 @@ will precede the `go` command to start thinking with `sd 5`. The other `go_comma
     - antichess
     # etc.
 ```
-  - `time_controls`: An indented list of acceptable time control types from `bullet` to `correspondence`.
+  - `time_controls`: An indented list of acceptable time control types from `bullet` to `correspondence` (bots are not allowed to play `ultraBullet`).
 ```yml
   time_controls:
     - bullet
@@ -209,6 +215,13 @@ will precede the `go` command to start thinking with `sd 5`. The other `go_comma
 - `fake_think_time`: Artificially slow down the engine to simulate a person thinking about a move. The amount of thinking time decreases as the game goes on.
 - `rate_limiting_delay`: For extremely fast games, the lichess.org servers may respond with an error if too many moves are played too quickly. This option avoids this problem by pausing for a specified number of milliseconds after submitting a move before making the next move.
 - `move_overhead`: To prevent losing on time due to network lag, subtract this many milliseconds from the time to think on each move.
+- `max_takebacks_accepted`: Specify the number of times an opponent is allowed to take back their move in a single game.
+    - In order for an opponent to be able to request move takebacks, the bot's lichess preferences must be set to accept them.
+      1. Sign into the bot's account on the lichess website.
+      2. Go to the [`Game behavior`](https://lichess.org/account/preferences/game-behavior) section of the bot's preferences page.
+      3. Under `Takebacks (with opponent approval)`, select `Always` or `In casual games only`.
+    - Note: bots requesting a move takeback (whether through lichess-bot or through the lichess website) is not supported.
+- `quit_after_all_games_finish`: If this is set to `true`, then pressing Ctrl-c to quit will cause lichess-bot to terminate after all in-progress games are finished. No new challenges will be sent or accepted, nor will any correspondence games be checked on. If `false` (the default), lichess-bot will terminate immediately and not wait to finish games in progress. If this value is `true` and you find that you need to quit immediately, press Ctrl-c twice.
 - `pgn_directory`: Write a record of every game played in PGN format to files in this directory. Each bot move will be annotated with the bot's calculated score and principal variation. The score is written with a tag of the form `[%eval s,d]`, where `s` is the score in pawns (positive means white has the advantage), and `d` is the depth of the search.
 - `pgn_file_grouping`: Determine how games are written to files. There are three options:
     - `game`: Every game record is written to a different file in the `pgn_directory`. The file name is `{White name} vs. {Black name} - {lichess game ID}.pgn`.
@@ -222,6 +235,7 @@ will precede the `go` command to start thinking with `sd 5`. The other `go_comma
 ## Challenging other bots
 - `matchmaking`: Challenge a random bot.
   - `allow_matchmaking`: Whether to challenge other bots.
+  - `allow_during_games`: Whether to issue new challenges while the bot is already playing games. If true, no more than 10 minutes will pass between matchmaking challenges.
   - `challenge_variant`: The variant for the challenges. If set to `random` a variant from the ones enabled in `challenge.variants` will be chosen at random.
   - `challenge_timeout`: The time (in minutes) the bot has to be idle before it creates a challenge.
   - `challenge_initial_time`: A list of initial times (in seconds and to be chosen at random) for the challenges.
@@ -230,6 +244,7 @@ will precede the `go` command to start thinking with `sd 5`. The other `go_comma
   - `opponent_min_rating`: The minimum rating of the opponent bot. The minimum rating in lichess is 600.
   - `opponent_max_rating`: The maximum rating of the opponent bot. The maximum rating in lichess is 4000.
   - `opponent_rating_difference`: The maximum difference between the bot's rating and the opponent bot's rating.
+  - `rating_preference`: Whether the bot should prefer challenging high or low rated players, or have no preference.
   - `opponent_allow_tos_violation`: Whether to challenge bots that violated Lichess Terms of Service. Note that even rated games against them will not affect ratings.
   - `challenge_mode`: Possible options are `casual`, `rated` and `random`.
   - `challenge_filter`: Whether and how to prevent challenging a bot after that bot declines a challenge. Options are `none`, `coarse`, and `fine`.
@@ -239,6 +254,7 @@ will precede the `go` command to start thinking with `sd 5`. The other `go_comma
 
     The `challenge_filter` option can be useful if your matchmaking settings result in a lot of declined challenges. The bots that accept challenges will be challenged more often than those that have declined. The filter will remain until lichess-bot quits or the connection with lichess.org is reset.
   - `block_list`: An indented list of usernames of bots that will not be challenged. If this option is not present, then the list is considered empty.
+  - `include_challenge_block_list`: If `true`, do not send challenges to the bots listed in the `challenge: block_list`. Default is `false`.
   - `overrides`: Create variations on the matchmaking settings above for more specific circumstances. If there are any subsections under `overrides`, the settings below that will override the settings in the matchmaking section. Any settings that do not appear will be taken from the settings above. <br/> <br/>
   The overrides section must have the following:
     - Name: A unique name must be given for each override. In the example configuration below, `easy_chess960` and `no_pressure_correspondence` are arbitrary strings to name the subsections and they are unique.
@@ -256,13 +272,13 @@ matchmaking:
   allow_matchmaking: false
   challenge_variant: "random"
   challenge_timeout: 30
-  challenge_initial_time: 
+  challenge_initial_time:
     - 60
     - 120
-  challenge_increment: 
+  challenge_increment:
     - 1
     - 2
-  challenge_days: 
+  challenge_days:
      - 1
      - 2
 # opponent_min_rating: 600
